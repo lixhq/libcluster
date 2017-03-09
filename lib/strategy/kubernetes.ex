@@ -129,12 +129,19 @@ defmodule Cluster.Strategy.Kubernetes do
     end
   end
 
+  defp get_config_value(%State{config: config}, key) do
+    case Keyword.fetch!(config, key) do
+      {:system, env_key} -> System.get_env(env_key)
+      value -> value
+    end
+  end
+
   @spec get_nodes(State.t) :: [atom()]
-  defp get_nodes(%State{topology: topology, config: config}) do
+  defp get_nodes(state = %State{topology: topology}) do
     token     = get_token()
     namespace = get_namespace()
-    app_name = Keyword.fetch!(config, :kubernetes_node_basename)
-    selector = Keyword.fetch!(config, :kubernetes_selector)
+    app_name = get_config_value(state, :kubernetes_node_basename)
+    selector = get_config_value(state, :kubernetes_selector)
     cond do
       app_name != nil and selector != nil ->
         selector = URI.encode(selector)
