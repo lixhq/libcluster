@@ -63,8 +63,8 @@ defmodule Cluster.Strategy.Kubernetes do
   alias Cluster.Strategy.State
 
   @default_polling_interval 5_000
-  @kubernetes_master    "kubernetes.default.svc.cluster.local"
-  @service_account_path "/var/run/secrets/kubernetes.io/serviceaccount"
+  @default_kubernetes_master    "kubernetes.default.svc.cluster.local"
+  @default_service_account_path "/var/run/secrets/kubernetes.io/serviceaccount"
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
   def init(opts) do
@@ -111,18 +111,18 @@ defmodule Cluster.Strategy.Kubernetes do
     {:noreply, state}
   end
 
-  @spec get_token() :: String.t
-  defp get_token() do
-    path = Path.join(@service_account_path, "token")
+  @spec get_token(String.t) :: String.t
+  defp get_token(service_account_path) do
+    path = Path.join(service_account_path, "token")
     case File.exists?(path) do
       true  -> path |> File.read! |> String.trim()
       false -> ""
     end
   end
 
-  @spec get_namespace() :: String.t
-  defp get_namespace() do
-    path = Path.join(@service_account_path, "namespace")
+  @spec get_namespace(String.t) :: String.t
+  defp get_namespace(service_account_path) do
+    path = Path.join(service_account_path, "namespace")
     case File.exists?(path) do
       true  -> path |> File.read! |> String.trim()
       false -> ""
@@ -131,10 +131,12 @@ defmodule Cluster.Strategy.Kubernetes do
 
   @spec get_nodes(State.t) :: [atom()]
   defp get_nodes(%State{topology: topology, config: config}) do
-    token     = get_token()
-    namespace = get_namespace()
     app_name = Keyword.fetch!(config, :kubernetes_node_basename)
     selector = Keyword.fetch!(config, :kubernetes_selector)
+    kubernetes_master = Keyword.get(config, :kubernetes_master, @default_kubernetes_master)
+    service_account_path = Keyword.get(config, :service_account_path, @default_service_account_path)
+    token     = get_token(service_account_path)
+    namespace = get_namespace(service_account_path)
     cond do
       app_name != nil and selector != nil ->
         selector = URI.encode(selector)
