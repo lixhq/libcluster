@@ -129,19 +129,25 @@ defmodule Cluster.Strategy.Kubernetes do
     end
   end
 
-  defp get_config_value(%State{config: config}, key) do
-    case Keyword.fetch!(config, key) do
-      {:system, env_key} -> System.get_env(env_key)
+  defp get_config_value(config, key, default) do
+    default_value = case Keyword.get(config, key, :not_set) do
+      {:system, _, config_default} -> config_default
+      _ -> default
+    end
+
+    case Keyword.get(config, key, default_value) do
+      {:system, env_key, _default} -> System.get_env(env_key) || default_value
+      {:system, env_key} -> System.get_env(env_key) || default_value
       value -> value
     end
   end
 
   @spec get_nodes(State.t) :: [atom()]
   defp get_nodes(%State{topology: topology, config: config}) do
-    app_name = Keyword.fetch!(config, :kubernetes_node_basename)
-    selector = Keyword.fetch!(config, :kubernetes_selector)
-    kubernetes_master = Keyword.get(config, :kubernetes_master, @default_kubernetes_master)
-    service_account_path = Keyword.get(config, :service_account_path, @default_service_account_path)
+    app_name = get_config_value(config, :kubernetes_node_basename, nil)
+    selector = get_config_value(config, :kubernetes_selector, nil)
+    kubernetes_master = get_config_value(config, :kubernetes_master, @default_kubernetes_master)
+    service_account_path = get_config_value(config, :service_account_path, @default_service_account_path)
     token     = get_token(service_account_path)
     namespace = get_namespace(service_account_path)
     cond do
@@ -150,7 +156,7 @@ defmodule Cluster.Strategy.Kubernetes do
         endpoints_path = "api/v1/namespaces/#{namespace}/endpoints?labelSelector=#{selector}"
         headers        = [{'authorization', 'Bearer #{token}'}]
         http_options   = [ssl: [verify: :verify_none]]
-        case :httpc.request(:get, {'https://#{@kubernetes_master}/#{endpoints_path}', headers}, http_options, []) do
+        case :httpc.request(:get, {'https://#{kubernetes_master}/#{endpoints_path}', headers}, http_options, []) do
           {:ok, {{_version, 200, _status}, _headers, body}} ->
             parse_response(Keyword.get(config, :mode, :ip), app_name, Poison.decode!(body))
           {:ok, {{_version, 403, _status}, _headers, body}} ->
