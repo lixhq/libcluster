@@ -7,7 +7,7 @@ defmodule Cluster.App do
 
     children = get_child_specs()
     opts = [strategy: :one_for_one, name: Cluster.Supervisor]
-    Supervisor.start_link(children, opts)
+    Supervisor.start_link(children, opts) 
   end
 
   defp get_child_specs() do
@@ -35,5 +35,6 @@ defmodule Cluster.App do
         worker(strategy, worker_args, opts)
       end
     end
+    |> Enum.reject(&is_nil/1)
   end
 end
