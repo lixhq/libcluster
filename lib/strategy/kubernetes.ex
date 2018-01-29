@@ -83,30 +83,38 @@ defmodule Cluster.Strategy.Kubernetes do
     handle_info(:load, state)
   end
   def handle_info(:load, %State{topology: topology, connect: connect, disconnect: disconnect, list_nodes: list_nodes} = state) do
-    new_nodelist = MapSet.new(get_nodes(state))
-    added        = MapSet.difference(new_nodelist, state.meta)
-    removed      = MapSet.difference(state.meta, new_nodelist)
-    new_nodelist = case Cluster.Strategy.disconnect_nodes(topology, disconnect, list_nodes, MapSet.to_list(removed)) do
-                :ok ->
-                  new_nodelist
-                {:error, bad_nodes} ->
-                  # Add back the nodes which should have been removed, but which couldn't be for some reason
-                  Enum.reduce(bad_nodes, new_nodelist, fn {n, _}, acc ->
-                    MapSet.put(acc, n)
-                  end)
-              end
-    new_nodelist = case Cluster.Strategy.connect_nodes(topology, connect, list_nodes, MapSet.to_list(added)) do
-              :ok ->
-                new_nodelist
-              {:error, bad_nodes} ->
-                # Remove the nodes which should have been added, but couldn't be for some reason
-                Enum.reduce(bad_nodes, new_nodelist, fn {n, _}, acc ->
-                  MapSet.delete(acc, n)
-                end)
-            end
+    new_nodelist = case get_nodes(state) do
+      {:ok, nodes} ->
+        new_nodelist = MapSet.new(nodes)
+        added        = MapSet.difference(new_nodelist, state.meta)
+        removed      = MapSet.difference(state.meta, new_nodelist)
+        new_nodelist = case Cluster.Strategy.disconnect_nodes(topology, disconnect, list_nodes, MapSet.to_list(removed)) do
+          :ok ->
+            new_nodelist
+          {:error, bad_nodes} ->
+            # Add back the nodes which should have been removed, but which couldn't be for some reason
+          Enum.reduce(bad_nodes, new_nodelist, fn {n, _}, acc ->
+            MapSet.put(acc, n)
+          end)
+        end
+        new_nodelist = case Cluster.Strategy.connect_nodes(topology, connect, list_nodes, MapSet.to_list(added)) do
+          :ok ->
+            new_nodelist
+          {:error, bad_nodes} ->
+            # Remove the nodes which should have been added, but couldn't be for some reason
+          Enum.reduce(bad_nodes, new_nodelist, fn {n, _}, acc ->
+            MapSet.delete(acc, n)
+          end)
+        end
+        new_nodelist
+      {:error, error} ->
+        state.meta
+    end
+
     Process.send_after(self(), :load, Keyword.get(state.config, :polling_interval, @default_polling_interval))
     {:noreply, %{state | :meta => new_nodelist}}
   end
+
   def handle_info(_, state) do
     {:noreply, state}
   end
@@ -158,27 +166,27 @@ defmodule Cluster.Strategy.Kubernetes do
         http_options   = [ssl: [verify: :verify_none]]
         case :httpc.request(:get, {'https://#{kubernetes_master}/#{endpoints_path}', headers}, http_options, []) do
           {:ok, {{_version, 200, _status}, _headers, body}} ->
-            parse_response(Keyword.get(config, :mode, :ip), app_name, Poison.decode!(body))
+            {:ok, parse_response(Keyword.get(config, :mode, :ip), app_name, Poison.decode!(body))}
           {:ok, {{_version, 403, _status}, _headers, body}} ->
             %{"message" => msg} = Poison.decode!(body)
             warn topology, "cannot query kubernetes (unauthorized): #{msg}"
-            []
+            {:error, :k8s_request_unauthorized}
           {:ok, {{_version, code, status}, _headers, body}} ->
             warn topology, "cannot query kubernetes (#{code} #{status}): #{inspect body}"
-            []
+            {:error, :k8s_request_error}
           {:error, reason} ->
             error topology, "request to kubernetes failed!: #{inspect reason}"
-            []
+            {:error, :k8s_request_failed}
         end
       app_name == nil ->
         warn topology, "kubernetes strategy is selected, but :kubernetes_node_basename is not configured!"
-        []
+        {:ok, []}
       selector == nil ->
         warn topology, "kubernetes strategy is selected, but :kubernetes_selector is not configured!"
-        []
+        {:ok, []}
       :else ->
         warn topology, "kubernetes strategy is selected, but is not configured!"
-        []
+        {:ok, []}
     end
   end
 
