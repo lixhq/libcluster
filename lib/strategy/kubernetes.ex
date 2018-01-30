@@ -163,7 +163,7 @@ defmodule Cluster.Strategy.Kubernetes do
         selector = URI.encode(selector)
         endpoints_path = "api/v1/namespaces/#{namespace}/endpoints?labelSelector=#{selector}"
         headers        = [{'authorization', 'Bearer #{token}'}]
-        http_options   = [ssl: [verify: :verify_none]]
+        http_options   = [ssl: [verify: :verify_none], timeout: 15000]
         case :httpc.request(:get, {'https://#{kubernetes_master}/#{endpoints_path}', headers}, http_options, []) do
           {:ok, {{_version, 200, _status}, _headers, body}} ->
             {:ok, parse_response(Keyword.get(config, :mode, :ip), app_name, Poison.decode!(body))}
